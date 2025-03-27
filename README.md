@@ -1,10 +1,3 @@
-# BE AWARE: ARDUINO LIBRARY MANAGER IS BROKEN AND 0.29.x/0.30.x with x>0 do not show.
-
-No issue with platformio. Check the [related issue](https://github.com/arduino/library-registry/issues/2829) for the arduino library manager
-
-[![arduino-library-badge](https://www.ardu-badge.com/badge/FastAccelStepper.svg?)](https://www.ardu-badge.com/FastAccelStepper)
-
-
 # FastAccelStepper 
 ![GitHub tag](https://img.shields.io/github/v/tag/gin66/FastAccelStepper.svg?sort=semver&no_cache_0.28.1)
 [![PlatformIO Registry](https://badges.registry.platformio.org/packages/gin66/library/FastAccelStepper.svg)](https://registry.platformio.org/libraries/gin66/FastAccelStepper)
@@ -31,7 +24,7 @@ Arduino core 3.1.0 will support ESP-IDF V5.3.0 (based on RC1)
 ## Overview
 
 This is a high speed alternative for the [AccelStepper library](http://www.airspayce.com/mikem/arduino/AccelStepper/).
-Supported are avr (ATmega 168/328/P, ATmega2560,  ATmega32u4), esp32, esp32s2, esp32s3, esp32c3, esp32c6 and atmelsam due.
+Supported are avr (ATmega 168/328/P, ATmega2560,  ATmega32u4), esp32, esp32s2, esp32s3, esp32c3, esp32c6, esp32p4 and atmelsam due.
 
 The stepper motors should be connected via a driver IC (like A4988) with a 1, 2 or 3-wire connection:
 * Step Signal
@@ -343,6 +336,10 @@ This stepper driver uses rmt modules. Can drive up to 4 motors.
 
 This stepper driver uses rmt module and can drive up to 2 motors. Not thoroughly tested, so only experimental support.
 
+### ESP32P4
+
+This stepper driver uses rmt module and can drive up to 4 motors. Not thoroughly tested, so only experimental support.
+
 ### ESP32-MINI-1
 
 Compatibility with ESP32-MINI-1: At least mcpwm and pulse counter modules are listed in the datasheet. So there are chances, that this lib works.
@@ -509,4 +506,5 @@ As mentioned by kthod861 in [Issue #110](https://github.com/gin66/FastAccelStepp
 - Thanks GarmischWg for adding rmt-support to ESP32-S3 (https://github.com/gin66/FastAccelStepper/pull/225)
 - Thanks SHWotever for avr patch to fix missing direction pin toggle (https://github.com/gin66/FastAccelStepper/pull/252)
 - Thanks HalfVoxel for pull requests (https://github.com/gin66/FastAccelStepper/pull/270) and (https://github.com/gin66/FastAccelStepper/pull/271): improved doc and missing parenthesis in preprocessor macros
-
+- Thanks pvginkel for pull request (https://github.com/gin66/FastAccelStepper/pull/300): fix race condition in engine init
+- Thanks freelancer1845 for instructions to resolve stray link to arduino-esp32 for espidf only projects (https://github.com/gin66/FastAccelStepper/discussions/217). 

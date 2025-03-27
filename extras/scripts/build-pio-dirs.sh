@@ -21,6 +21,8 @@ for i in `ls examples`
 do
 	mkdir -p pio_dirs/$i/src
 	cd pio_dirs/$i
+        mkdir FastAccelStepper
+        ln -s $ROOT/src FastAccelStepper
 	ln -s ../../extras/ci/platformio.ini .
 	cd src
 	FILES=`cd ../../../examples/$i;find . -type f`
@@ -35,6 +37,8 @@ for i in `cd extras;ls idf_examples`
 do
 	mkdir -p pio_espidf/$i/src
 	cd pio_espidf/$i
+        mkdir FastAccelStepper
+        ln -s $ROOT/src FastAccelStepper
 	ln -s ../../extras/ci/platformio.ini .
 	cd src
 	FILES=`cd ../../../extras/idf_examples/$i;find . -type f`
@@ -48,6 +52,8 @@ mkdir -p pio_espidf/StepperDemo/src
 mkdir pio_dirs/PMF_test
 mkdir pio_dirs/PMF_test/src
 cd pio_dirs/PMF_test
+mkdir FastAccelStepper
+ln -s $ROOT/src FastAccelStepper
 ln -s ../../extras/ci/platformio.ini .
 cd src
 #sed  -e 's/%d/%ld/g' <../../../tests/test_03.h >test_03.h
@@ -56,4 +62,5 @@ ln -s ../../../extras/tests/pc_based/PMF_test.ino PMF_test.ino
 cd ../../..
 
 ls -al pio_*
+find pio_*
 

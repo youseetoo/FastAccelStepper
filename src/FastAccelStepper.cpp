@@ -18,22 +18,26 @@ FastAccelStepper fas_stepper[MAX_STEPPER];
 
 //*************************************************************************************************
 //*************************************************************************************************
-void FastAccelStepperEngine::init() {
-  _externalCallForPin = NULL;
-  _stepper_cnt = 0;
-  fas_init_engine(this, 255);
-  for (uint8_t i = 0; i < MAX_STEPPER; i++) {
-    _stepper[i] = NULL;
-  }
-}
-
 #if defined(SUPPORT_CPU_AFFINITY)
 void FastAccelStepperEngine::init(uint8_t cpu_core) {
   _externalCallForPin = NULL;
   _stepper_cnt = 0;
+  for (uint8_t i = 0; i < MAX_STEPPER; i++) {
+    _stepper[i] = NULL;
+  }
   fas_init_engine(this, cpu_core);
 }
+#else
+void FastAccelStepperEngine::init() {
+  _externalCallForPin = NULL;
+  _stepper_cnt = 0;
+  for (uint8_t i = 0; i < MAX_STEPPER; i++) {
+    _stepper[i] = NULL;
+  }
+  fas_init_engine(this);
+}
 #endif
+
 void FastAccelStepperEngine::setExternalCallForPin(
     bool (*func)(uint8_t pin, uint8_t value)) {
   _externalCallForPin = func;
@@ -906,6 +910,155 @@ void FastAccelStepper::backwardStep(bool blocking) {
 }
 int32_t FastAccelStepper::getCurrentPosition() {
   return fas_queue[_queue_num].getCurrentPosition();
+}
+int8_t FastAccelStepper::moveTimed(int16_t steps, uint32_t duration,
+                                   uint32_t* actual_duration, bool start) {
+  uint8_t ret_ok = isQueueEmpty() ? MOVE_TIMED_EMPTY : MOVE_TIMED_OK;
+  if ((steps == 0) && (duration == 0)) {
+    if (start) {
+      addQueueEntry(NULL, true);  // start the queue
+    }
+    return ret_ok;
+  }
+  uint8_t freeEntries = QUEUE_LEN - queueEntries();
+  if (actual_duration) {
+    *actual_duration = 0;
+  }
+  struct stepper_command_s cmd = {.ticks = 0, .steps = 0, .count_up = true};
+  if (steps == 0) {
+    if ((duration >> 16) >= QUEUE_LEN) {
+      return MOVE_TIMED_TOO_LARGE_ERROR;
+    }
+    if ((duration >> 16) >= freeEntries) {
+      return MOVE_TIMED_BUSY;
+    }
+    // Should fit
+    while (duration > 0) {
+      if (duration <= 65535) {
+        // done using one command
+        cmd.ticks = duration;
+      } else if (duration >= 131072) {
+        // need more than one command
+        cmd.ticks = 65535;
+      } else {
+        // just use half of the duration now, and the other half in the next
+        // cmd.
+        cmd.ticks = duration >> 1;
+      }
+      uint8_t ret = addQueueEntry(&cmd, start);
+      if (ret != 0) {
+        // unexpected
+        return ret;
+      }
+      if (actual_duration) {
+        *actual_duration += cmd.ticks;
+      }
+      duration -= cmd.ticks;
+    }
+    return ret_ok;
+  }
+
+  // let's evaluate the direction
+  if (steps < 0) {
+    cmd.count_up = false;
+    steps = -steps;
+  }
+
+  // There are steps to execute
+  // Let's first calculate the step rate
+  uint32_t rate = duration;
+  rate /= steps;
+  if (rate > 65535) {
+    // we need pauses, so only few steps can be executed
+    uint16_t cmds_per_step = (rate >> 16) + 1;  // bit too small
+    if (cmds_per_step >= QUEUE_LEN) {
+      return MOVE_TIMED_TOO_LARGE_ERROR;
+    }
+    if (steps >= QUEUE_LEN) {
+      return MOVE_TIMED_TOO_LARGE_ERROR;
+    }
+    uint8_t cmds = steps * cmds_per_step;
+    if (cmds >= QUEUE_LEN) {
+      return MOVE_TIMED_TOO_LARGE_ERROR;
+    }
+    if (cmds > freeEntries) {
+      return MOVE_TIMED_BUSY;
+    }
+    // Should fit into the queue.
+    for (uint8_t s = 0; s < steps; s++) {
+      uint32_t this_duration = rate;
+      cmd.steps = 1;
+      while (this_duration) {
+        if (this_duration > 131072) {
+          cmd.ticks = 65535;
+        } else if (this_duration > 65535) {
+          cmd.ticks = this_duration / 2;
+        } else {
+          cmd.ticks = this_duration;
+        }
+        this_duration -= cmd.ticks;
+
+        uint8_t ret = addQueueEntry(&cmd, start);
+        if (ret != 0) {
+          // unexpected
+          return ret;
+        }
+        if (actual_duration) {
+          *actual_duration += cmd.ticks;
+        }
+        // remaining are pauses
+        cmd.steps = 0;
+      }
+    }
+    return ret_ok;
+  }
+  // Now we need to run steps at "high" speed.
+  if (steps > QUEUE_LEN * 255) {
+    return MOVE_TIMED_TOO_LARGE_ERROR;
+  }
+  if (steps > freeEntries * 255) {
+    return MOVE_TIMED_BUSY;
+  }
+  // The steps should fit in
+  cmd.ticks = rate;
+  uint32_t expected_duration = rate;
+  expected_duration *= steps;
+  // duration must be larger than expected_duration
+  int16_t missing = duration - expected_duration;
+#ifdef TEST
+  assert(duration >= expected_duration);
+#endif
+  while (steps > 0) {
+    if (steps > 510) {
+      cmd.steps = 255;
+    } else if (steps > 255) {
+      cmd.steps = steps / 2;
+    } else {
+      cmd.steps = steps;
+    }
+    if (steps <= missing) {
+      // run the remaining steps bit slower to adjust for missing ticks
+      cmd.ticks++;
+      missing = 0;  // only increase once
+#ifdef TEST
+      printf("increase ticks for %d steps\n", steps);
+#endif
+    }
+    uint8_t ret = addQueueEntry(&cmd, start);
+    if (ret != 0) {
+      // unexpected
+      return ret;
+    }
+    uint32_t cmd_duration = cmd.ticks;
+    cmd_duration *= cmd.steps;
+    if (actual_duration) {
+      uint32_t d = cmd.ticks;
+      d *= steps;
+      *actual_duration += d;
+    }
+    steps -= cmd.steps;
+  }
+  return ret_ok;
 }
 void FastAccelStepper::detachFromPin() { fas_queue[_queue_num].disconnect(); }
 void FastAccelStepper::reAttachToPin() { fas_queue[_queue_num].connect(); }

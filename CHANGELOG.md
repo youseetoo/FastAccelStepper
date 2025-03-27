@@ -3,7 +3,16 @@ TODO:
 - #include-file structure needs to be cleaned up
 - rename PoorManFloat to e.g. Log2Representation
 - rename RampConstAcceleration to e.g. RampControl
-- for esp-idf 5 make use of espressif resource management of rmt channels
+
+0.31.5:
+- initial and untested version of `moveTimed()`
+- add esp32p4
+- remove arduino-esp32 dependency for espidf only projects (#217)
+
+0.31.4:
+- fix race condition in engine.init. Only applicable for esp32 (#300)
+- fix name of arduino component in CMakeLists.txt for espidf compilation (#300)
+- remove unused `cpu_core` parameter in `fas_engine_init()` for avr/due (#301)
 
 0.31.3:
 - esp32: add `engine->task_rate(uint8_t delay_ms)` function to adjust the stepper task rate to e.g. 1ms (see #288 for reference)
