@@ -2,13 +2,13 @@
 #define FASTACCELSTEPPER_H
 #include <stdint.h>
 #include "PoorManFloat.h"
-#include "fas_arch/common.h"
+#include "common.h"
 
 // # FastAccelStepper
 //
 // FastAccelStepper is a high speed alternative for the
 // [AccelStepper library](http://www.airspayce.com/mikem/arduino/AccelStepper/).
-// Supported are avr (ATmega 168/328/P, ATmega2560), esp32 and atmelsam due.
+// Supported are avr (ATmega 328, ATmega2560), esp32 and atmelsam due.
 //
 // Here is a basic example to run a stepper from position 0 to 1000 and back
 // again to 0.
@@ -71,6 +71,7 @@ class FastAccelStepperEngine {
   // CPU core with this modified init()-call. ESP32 implementation detail: For
   // values 0 and 1, xTaskCreatePinnedToCore() is used, or else xTaskCreate()
   void init(uint8_t cpu_core);
+
 #endif
 
   // ### Creation of FastAccelStepper
@@ -80,59 +81,19 @@ class FastAccelStepperEngine {
   // hardware may have limitations - e.g. no stepper resources anymore, or the
   // step pin cannot be used, then NULL is returned. So it is advised to check
   // the return value of this call.
-#if !defined(SUPPORT_SELECT_DRIVER_TYPE)
   FastAccelStepper* stepperConnectToPin(uint8_t step_pin);
-#endif
-  // For e.g. esp32, there are two types of driver.
-  // One using mcpwm and pcnt module. And another using rmt module.
-  // This call allows to select the respective driver
-#if defined(SUPPORT_SELECT_DRIVER_TYPE)
-#define DRIVER_MCPWM_PCNT 0
-#define DRIVER_RMT 1
-#define DRIVER_DONT_CARE 2
-  FastAccelStepper* stepperConnectToPin(uint8_t step_pin,
-                                        uint8_t driver_type = DRIVER_DONT_CARE);
-#endif
-
-#if defined(SUPPORT_TASK_RATE_CHANGE)
-  // For e.g. esp32 the repetition rate of the stepper task can be changed.
-  // The default delay is 4ms.
-  //
-  // The steppertask is looping with:
-  //       manageSteppers()
-  //       wdt_reset()
-  //       delay()
-  //
-  // The actual repetition rate of the stepper task is delay + execution time of manageSteppers()
-  //
-  // This function is primary of interest in conjunction with setForwardPlanningTimeInMs().
-  // If the delay is larger then forward planning time, then the stepper queue will always
-  // run out of commands, which lead to a sudden stop of the motor. If the delay is 0,
-  // then the stepper task will constantly looping, which may lead to the task blocking other
-  // tasks. Consequently, this function is intended for advanced users.
-  //
-  // There is not planned to test this functionality, because automatic testing is only
-  // available for avr devices and those continue to use fixed 4ms rate.
-  //
-  // Please be aware, that the configured tick rate aka portTICK_PERIOD_MS is relevant.
-  // Apparently, arduino-esp32 has FreeRTOS configured to have a tick-rate of 1000Hz
-  inline void task_rate(uint8_t delay_ms) {
-    _delay_ms = delay_ms;
-  };
-  uint8_t _delay_ms;
-#endif
 
   // Comments to valid pins:
   //
   // clang-format off
-  // | Device          | Comment                                                                                           |
-  // |:----------------|:--------------------------------------------------------------------------------------------------|
-  // | ESP32           | Every output capable GPIO can be used                                                             |
-  // | ESP32S2         | Every output capable GPIO can be used                                                             |
-  // | Atmega168/328/p | Only the pins connected to OC1A and OC1B are allowed                                              |
-  // | Atmega2560      | Only the pins connected to OC4A, OC4B and OC4C are allowed.                                       |
-  // | Atmega32u4      | Only the pins connected to OC1A, OC1B and OC1C are allowed                                        |
-  // | Atmel SAM       | This can be one of each group of pins: 34/67/74/35, 17/36/72/37/42, 40/64/69/41, 9, 8/44, 7/45, 6 |
+  // | Device     | Comment                                                                                           |
+  // |:-----------|:--------------------------------------------------------------------------------------------------|
+  // | ESP32      | Every output capable GPIO can be used                                                             |
+  // | ESP32S2    | Every output capable GPIO can be used                                                             |
+  // | Atmega328p | Only the pins connected to OC1A and OC1B are allowed                                              |
+  // | Atmega2560 | Only the pins connected to OC4A, OC4B and OC4C are allowed.                                       |
+  // | Atmega32u4 | Only the pins connected to OC1A, OC1B and OC1C are allowed                                        |
+  // | Atmel SAM  | This can be one of each group of pins: 34/67/74/35, 17/36/72/37/42, 40/64/69/41, 9, 8/44, 7/45, 6 |
   // clang-format on
 
   // ## External Pins
@@ -172,7 +133,7 @@ class FastAccelStepperEngine {
  private:
   bool isDirPinBusy(uint8_t dirPin, uint8_t except_stepper);
 
-  uint8_t _stepper_cnt;
+  uint8_t _next_stepper_num;
   FastAccelStepper* _stepper[MAX_STEPPER];
 
   bool _isValidStepPin(uint8_t step_pin);
@@ -183,12 +144,17 @@ class FastAccelStepperEngine {
 
 // ### Return codes of calls to `move()` and `moveTo()`
 //
-// The defined preprocessor macros are MOVE_xxx:
-// MOVE_OK: All is OK:
-// MOVE_ERR_NO_DIRECTION_PIN: Negative direction requested, but no direction pin
-// MOVE_ERR_SPEED_IS_UNDEFINED: The maximum speed has not been set yet
-// MOVE_ERR_ACCELERATION_IS_UNDEFINED: The acceleration to use has not been set
-// yet
+// All is OK:
+#define MOVE_OK 0
+
+// Negative direction requested, but no direction pin defined
+#define MOVE_ERR_NO_DIRECTION_PIN -1
+
+// The maximum speed has not been set yet
+#define MOVE_ERR_SPEED_IS_UNDEFINED -2
+
+// The acceleration to use has not been set yet
+#define MOVE_ERR_ACCELERATION_IS_UNDEFINED -3
 
 // ### Return codes of `rampState()`
 //
@@ -206,8 +172,9 @@ class FastAccelStepperEngine {
 #define RAMP_STATE_IDLE 0
 #define RAMP_STATE_COAST 1
 #define RAMP_STATE_ACCELERATE 2
-#define RAMP_STATE_DECELERATE 4
-#define RAMP_STATE_REVERSE (4 + 8)
+#define RAMP_STATE_DECELERATE_TO_STOP 4
+#define RAMP_STATE_DECELERATE (4 + 8)
+#define RAMP_STATE_REVERSE (4 + 16)
 #define RAMP_STATE_ACCELERATING_FLAG 2
 #define RAMP_STATE_DECELERATING_FLAG 4
 
@@ -215,11 +182,8 @@ class FastAccelStepperEngine {
 #define RAMP_DIRECTION_COUNT_UP 32
 #define RAMP_DIRECTION_COUNT_DOWN 64
 
-// A ramp state value of 2 is set after any move call on a stopped motor
-// and until the stepper task is serviced. The stepper task will then
-// control the direction flags
-
 #include "RampGenerator.h"
+#include "common.h"
 
 //
 // ## Timing values - Architecture dependent
@@ -236,8 +200,8 @@ class FastAccelStepperEngine {
 // |VARIABLE         | Value       | Unit                    |
 // |:----------------|------------:|:------------------------|
 // |TICKS_PER_S      | 16_000_000  | [ticks/s]               |
-// |MIN_CMD_TICKS    | 3200        | [1/TICKS_PER_S seconds] |
-// |MIN_DIR_DELAY_US |  200        | [µs]                    |
+// |MIN_CMD_TICKS    | 8000        | [1/TICKS_PER_S seconds] |
+// |MIN_DIR_DELAY_US |  500        | [µs]                    |
 // |MAX_DIR_DELAY_US | 4095        | [µs]                    |
 //
 // ### SAM DUE
@@ -262,12 +226,20 @@ class FastAccelStepper {
  private:
 #endif
   void init(FastAccelStepperEngine* engine, uint8_t num, uint8_t step_pin);
+  bool   _softLimitsEnabled = false;
+  int32_t _softLimitMin = 0;
+  int32_t _softLimitMax = 0;
 
  public:
   // ## Step Pin
   // step pin is defined at creation. Here can retrieve the pin
   uint8_t getStepPin();
 
+  void setSoftLimits(int32_t minPos, int32_t maxPos) {
+    _softLimitMin = minPos;
+    _softLimitMax = maxPos;
+    _softLimitsEnabled = true;
+  }
   // ## Direction Pin
   // if direction pin is connected, call this function.
   //
@@ -328,11 +300,6 @@ class FastAccelStepper {
 
   // ## Stepper Position
   // Retrieve the current position of the stepper
-  //
-  // Comment for esp32 with rmt module:
-  // The actual position may be off by the number of steps in the ongoing
-  // command. If precise real time position is needed, attaching a pulse counter
-  // may be of help.
   int32_t getCurrentPosition();
 
   // Set the current position of the stepper - either in standstill or while
@@ -359,14 +326,6 @@ class FastAccelStepper {
   uint16_t getMaxSpeedInTicks();
   uint32_t getMaxSpeedInHz();
   uint32_t getMaxSpeedInMilliHz();
-
-  // For esp32 and avr, the device's maximum allowed speed can be overridden.
-  // Allocating a new stepper will override any absolute speed limit.
-  // This is absolutely untested, no error checking implemented.
-  // Use at your own risk !
-#if SUPPORT_UNSAFE_ABS_SPEED_LIMIT_SETTING == 1
-  void setAbsoluteSpeedLimit(uint16_t max_speed_in_ticks);
-#endif
 
   // Setting the speed can be done with the four `setSpeed...()` calls.
   // The new value will be used only after call of these functions:
@@ -402,24 +361,11 @@ class FastAccelStepper {
   // |   > 0 | while position counting up   |
   // |   < 0 | while position counting down |
   //
-  // If the parameter realtime is true, then the most actual speed
-  // from the stepper queue is derived. This works only, if the queue
-  // does not contain pauses, which is normally the case for slow speeds.
-  // Otherwise the speed from the ramp generator is reported, which is
-  // done always in case of `realtime == false`. That speed is typically
-  // the value of the speed a couple of milliseconds later.
-  //
-  // The drawback of `realtime == true` is, that the reported speed
-  // may either come from the queue or from the ramp generator.
-  // This means the returned speed may have jumps during
-  // acceleration/deceleration.
-  //
-  // For backward compatibility, the default is true.
-  int32_t getCurrentSpeedInUs(bool realtime = true);
-  int32_t getCurrentSpeedInMilliHz(bool realtime = true);
+  int32_t getCurrentSpeedInUs();
+  int32_t getCurrentSpeedInMilliHz();
 
   // ## Acceleration
-  //  setAcceleration() expects as parameter the change of speed
+  //  set Acceleration expects as parameter the change of speed
   //  as step/s².
   //  If for example the speed should ramp up from 0 to 10000 steps/s within
   //  10s, then the acceleration is 10000 steps/s / 10s = 1000 steps/s²
@@ -443,52 +389,12 @@ class FastAccelStepper {
     return _rg.getCurrentAcceleration();
   }
 
-  // ## Linear Acceleration
-  //  setLinearAcceleration expects as parameter the number of steps,
-  //  where the acceleration is increased linearly from standstill up to the
-  //  configured acceleration value. If this parameter is 0, then there will be
-  //  no linear acceleration phase
-  //
-  //  If for example the acceleration should ramp up from 0 to 10000 steps/s^2
-  //  within 100 steps, then call setLinearAcceleration(100)
-  //
-  //  The speed at which linear acceleration turns into constant acceleration
-  //  can be calculated from the parameter linear_acceleration_steps.
-  //  Let's call this parameter `s_h` for handover steps.
-  //  Then the speed is:
-  //       `v_h = sqrt(1.5 * a * s_h)`
-  //
-  // New value will be used after call to
-  // move/moveTo/runForward/runBackward/applySpeedAcceleration/moveByAcceleration
-  //
-  // note: no update on stopMove()
-  inline void setLinearAcceleration(uint32_t linear_acceleration_steps) {
-    _rg.setLinearAcceleration(linear_acceleration_steps);
-  }
-
-  // ## Jump Start
-  // setJumpStart expects as parameter the ramp step to start from standstill.
-  //
-  // The speed at which the stepper will start can be calculated like this:
-  // - If linear acceleration is not in use:
-  //       start speed `v = sqrt(2 * a * jump_step)`
-  // - If linear acceleration is in use and `jump_step <= s_h`:
-  //       start speed `v = sqrt(1.5*a)/s_h^(1/6) * jump_step^(2/3)`
-  // - If linear acceleration is in use and `jump_step > s_h`:
-  //       start speed `v = sqrt(2 * a * (jump_step - s_h/4))`
-  //
-  //
-  // New value will be used after call to
-  // move/moveTo/runForward/runBackward
-  inline void setJumpStart(uint32_t jump_step) { _rg.setJumpStart(jump_step); }
-
   // ## Apply new speed/acceleration value
   // This function applies new values for speed/acceleration.
   // This is convenient especially, if the stepper is set to continuous running.
   void applySpeedAcceleration();
 
   // ## Move commands
-  // ### move() and moveTo()
   // start/move the stepper for (move) steps or to an absolute position.
   //
   // If the stepper is already running, then the current running move will be
@@ -500,7 +406,6 @@ class FastAccelStepper {
   int8_t move(int32_t move, bool blocking = false);
   int8_t moveTo(int32_t position, bool blocking = false);
 
-  // ### keepRunning()
   // This command flags the stepper to keep run continuously into current
   // direction. It can be stopped by stopMove.
   // Be aware, if the motor is currently decelerating towards reversed
@@ -509,14 +414,12 @@ class FastAccelStepper {
   void keepRunning();
   bool isRunningContinuously() { return _rg.isRunningContinuously(); }
 
-  // ### runForward() and runBackwards()
-  // These commands just let the motor run continuously in one direction.
+  // This command just let the motor run continuously in one direction.
   // If the motor is running in the opposite direction, it will reverse
   // return value as with move/moveTo
   int8_t runForward();
   int8_t runBackward();
 
-  // ### forwardStep() and backwardStep()
   // forwardStep()/backwardstep() can be called, while stepper is not moving
   // If stepper is moving, this is a no-op.
   // backwardStep() is a no-op, if no direction pin defined
@@ -525,7 +428,6 @@ class FastAccelStepper {
   void forwardStep(bool blocking = false);
   void backwardStep(bool blocking = false);
 
-  // ### moveByAcceleration()
   // moveByAcceleration() can be called, if only the speed of the stepper
   // is of interest and that speed to be controlled by acceleration.
   // The maximum speed (in both directions) to be set by setSpeedInUs() before.
@@ -538,31 +440,15 @@ class FastAccelStepper {
   // return value as with move/moveTo
   int8_t moveByAcceleration(int32_t acceleration, bool allow_reverse = true);
 
-  // ### stopMove()
-  // Stop the running stepper with normal deceleration.
+  // stop the running stepper with normal deceleration.
   // This only sets a flag and can be called from an interrupt !
   void stopMove();
   inline bool isStopping() { return _rg.isStopping(); }
 
-  // ### stepsToStop()
-  // This returns the current step value of the ramp.
-  // This equals the number of steps for a motor to
-  // reach the current position and speed from standstill
-  // and to come to standstill with deceleration if stopped
-  // immediately.
-  // This value is valid with or without linear acceleration
-  // being used.
-  // Primary use is to forecast possible stop position.
-  // The stop position is:
-  //    getCurrentPosition() + stepsToStop()
-  // in case of a motor running in positive direction.
-  uint32_t stepsToStop() { return _rg.stepsToStop(); }
-
-  // ### forceStop()
-  // Abruptly stop the running stepper without deceleration.
+  // abruptly stop the running stepper without deceleration.
   // This can be called from an interrupt !
   //
-  // The stepper command queue will be processed, but no further commands are
+  // The stepper command queue will be processed, but no furter commands are
   // added. This means, that the stepper can be expected to stop within approx.
   // 20ms.
   void forceStop();
@@ -574,47 +460,10 @@ class FastAccelStepper {
   // queue, the actual stop position is lost (recovering this position cannot be
   // done within an interrupt). So the new position after stop has to be
   // provided and will be set as current position after stop.
-  void forceStopAndNewPosition(int32_t new_pos);
+  void forceStopAndNewPosition(uint32_t new_pos);
 
-  // get the target position for the current move.
-  // As of now, this position is the view of the stepper task.
-  // This means, the value will stay unchanged after a move/moveTo until the
-  // stepper task is executed.
-  // In keep running mode, the targetPos() is not updated
+  // get the target position for the current move
   inline int32_t targetPos() { return _rg.targetPosition(); }
-
-  // ### Task planning
-  // The stepper task adds commands to the stepper queue until
-  // either at least two commands are planned, or the commands
-  // cover sufficient time into the future. Default value for that time is 20ms.
-  //
-  // The stepper task is cyclically executed every ~4ms.
-  // Especially for avr, the step interrupts puts a significant load on the uC,
-  // so the cyclical stepper task can even run for 2-3 ms. On top of that,
-  // other interrupts caused by the application could increase the load even
-  // further.
-  //
-  // Consequently, the forward planning should fill the queue for ideally two
-  // cycles, this means 8ms. This means, the default 20ms provide a sufficient
-  // margin and even a missed cycle is not an issue.
-  //
-  // The drawback of the 20ms is, that any change in speed/acceleration are
-  // added after those 20ms and for an application, requiring fast reaction
-  // times, this may impact the expected performance.
-  //
-  // Due to this the forward planning time can be adjusted with the following
-  // API call for each stepper individually.
-  //
-  // Attention:
-  // - This is only for advanced users: no error checking is implemented.
-  // - Only change the forward planning time, if the stepper is not running.
-  // - Too small values bear the risk of a stepper running at full speed
-  // suddenly stopping
-  //   due to lack of commands in the queue.
-  inline void setForwardPlanningTimeInMs(uint8_t ms) {
-    _forward_planning_in_ticks = ms;
-    _forward_planning_in_ticks *= TICKS_PER_S / 1000;  // ticks per ms
-  }
 
   // ## Low Level Stepper Queue Management (low level access)
   //
@@ -697,8 +546,9 @@ class FastAccelStepper {
   void detachFromPin();
   void reAttachToPin();
 
+#if defined(SUPPORT_ESP32_PULSE_COUNTER)
   // ## ESP32 only: Free pulse counter
-  // These four functions are only available on esp32.
+  // These two functions are only available on esp32.
   // The first can attach any of the eight pulse counters to this stepper.
   // The second then will read the current pulse counter value
   //
@@ -720,7 +570,7 @@ class FastAccelStepper {
   // then the pulse counter counts towards low_value. When the low value is hit,
   // the pulse counter is reset to 0.
   //
-  // If low_value and high_value are set to zero, then the pulse counter is just
+  // If low_value and high_value is set 0 zero, then the pulse counter is just
   // counting like any int16_t counter: 0...32767,-32768,-32767,...,0 and
   // backwards accordingly
   //
@@ -731,24 +581,11 @@ class FastAccelStepper {
   // stepper (at exact this moment) can be retrieved just by reading the pulse
   // counter. If the value is negative, then just add 3200.
   //
-  // Update for idf5 version:
-  // The pcnt_unit value is not used, because the available units are managed
-  // by the system. The parameter is kept for compatibility.
-  //
-#if defined(SUPPORT_ESP32_PULSE_COUNTER) && (ESP_IDF_VERSION_MAJOR == 5)
-  bool attachToPulseCounter(uint8_t unused_pcnt_unit = 0,
-                            int16_t low_value = -16384,
-                            int16_t high_value = 16384);
-  int16_t readPulseCounter();
-  void clearPulseCounter();
-  inline bool pulseCounterAttached() { return _attached_pulse_unit != NULL; }
-#endif
-#if defined(SUPPORT_ESP32_PULSE_COUNTER) && (ESP_IDF_VERSION_MAJOR == 4)
   bool attachToPulseCounter(uint8_t pcnt_unit, int16_t low_value = -16384,
                             int16_t high_value = 16384);
   int16_t readPulseCounter();
   void clearPulseCounter();
-  inline bool pulseCounterAttached() { return _attached_pulse_cnt_unit >= 0; }
+  bool pulseCounterAttached() { return _attached_pulse_cnt_unit >= 0; }
 #endif
 
  private:
@@ -762,7 +599,6 @@ class FastAccelStepper {
   bool needAutoDisable();
   bool agreeWithAutoDisable();
   bool usesAutoEnablePin(uint8_t pin);
-  void getCurrentSpeedInTicks(struct actual_ticks_s* speed, bool realtime);
 
   FastAccelStepperEngine* _engine;
   RampGenerator _rg;
@@ -779,12 +615,7 @@ class FastAccelStepper {
   uint16_t _off_delay_count;
   uint16_t _auto_disable_delay_counter;
 
-  uint32_t _forward_planning_in_ticks;
-
-#if defined(SUPPORT_ESP32_PULSE_COUNTER) && (ESP_IDF_VERSION_MAJOR == 5)
-  pcnt_unit_handle_t _attached_pulse_unit;
-#endif
-#if defined(SUPPORT_ESP32_PULSE_COUNTER) && (ESP_IDF_VERSION_MAJOR == 4)
+#if defined(SUPPORT_ESP32_PULSE_COUNTER)
   int16_t _attached_pulse_cnt_unit;
 #endif
 #if (TEST_MEASURE_ISR_SINGLE_FILL == 1)
