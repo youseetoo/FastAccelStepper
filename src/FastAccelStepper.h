@@ -39,6 +39,9 @@
 // void loop() {}
 // ```
 
+
+
+
 class FastAccelStepper;
 
 class FastAccelStepperEngine {
@@ -263,11 +266,15 @@ class FastAccelStepper {
  private:
 #endif
   void init(FastAccelStepperEngine* engine, uint8_t num, uint8_t step_pin);
+  bool _softLimitsEnabled = false;
+  int32_t _softLimitMin = 0;
+  int32_t _softLimitMax = 0;
 
  public:
   // ## Step Pin
   // step pin is defined at creation. Here can retrieve the pin
   uint8_t getStepPin();
+  void setSoftLimits(int32_t minPos, int32_t maxPos);
 
   // ## Direction Pin
   // if direction pin is connected, call this function.

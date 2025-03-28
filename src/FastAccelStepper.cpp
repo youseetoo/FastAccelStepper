@@ -360,19 +360,24 @@ bool FastAccelStepper::externalDirPinChangeCompletedIfNeeded() {
 //
 //*************************************************************************************************
 
-void FastAccelStepper::fill_queue() {
+void FastAccelStepper::fill_queue()
+{
   // Check preconditions to be allowed to fill the queue
-  if (!_rg.isRampGeneratorActive()) {
+  if (!_rg.isRampGeneratorActive())
+  {
     return;
   }
-  if (!_rg.hasValidConfig()) {
+  if (!_rg.hasValidConfig())
+  {
+    log_e("ERROR: Invalid ramp generator configuration");
 #ifdef TEST
     assert(false);
 #endif
     return;
   }
   // check if addition of commands is suspended (due to forceStopAndNewPosition)
-  StepperQueue* q = &fas_queue[_queue_num];
+  StepperQueue *q = &fas_queue[_queue_num];
+
   // if force stop has been called, then ignore_commands is true and ramp
   // stopped. So the ramp generator will not create a new command, unless new
   // move command has been given after forceStop..(). So we just clear the flag
@@ -380,21 +385,27 @@ void FastAccelStepper::fill_queue() {
 
   // preconditions are fulfilled, so create the command(s)
   NextCommand cmd;
-  // Plan ahead for max. 20 ms and minimum two commands.
-  // This is now configurable using _forward_planning_in_ticks.
+  // Plan ahead for max. 20 ms. Currently hard coded
   bool delayed_start = !q->isRunning();
   bool need_delayed_start = false;
   uint32_t ticksPrepared = q->ticksInQueue();
   while (!isQueueFull() &&
-         ((ticksPrepared < _forward_planning_in_ticks) ||
-          (q->queueEntries() <= 1)) &&
-         _rg.isRampGeneratorActive()) {
+         ((ticksPrepared < TICKS_PER_S / 50) || q->queueEntries() <= 1) &&
+         _rg.isRampGeneratorActive())
+  {
 #if (TEST_MEASURE_ISR_SINGLE_FILL == 1)
     // For run time measurement
     uint32_t runtime_us = micros();
 #endif
-    int8_t res = AQE_OK;
+    //int8_t res = AQE_OK;
+    // 1) Get the next command from the ramp generator
     _rg.getNextCommand(&q->queue_end, &cmd);
+    if (cmd.command.ticks == 0)
+    {
+      break;
+    }
+
+    /* // NO SOFT LIMITS
     if (cmd.command.ticks != 0) {
       res = addQueueEntry(&cmd.command, !delayed_start);
     }
@@ -409,24 +420,68 @@ void FastAccelStepper::fill_queue() {
         ticksPrepared += tmp;
       }
     }
+    */
+    /****** SOFT LIMITS ******/
+    // 2) Figure out the new position if we enqueue this command
+    //    (q->queue_end.pos is the library's tracked position;
+    //     count_up=true means +steps, false means -steps).
+    if (_softLimitsEnabled) {
+      int32_t current_pos = q->queue_end.pos;
+      int32_t new_pos = current_pos + 
+                        (cmd.command.count_up ? cmd.command.steps : -cmd.command.steps);
+    
+      // already at or beyond max
+      if ((new_pos > _softLimitMax) && (current_pos >= _softLimitMax)) {
+        _rg.stopRamp();
+        break;
+      }
+      // already at or below min
+      if ((new_pos < _softLimitMin) && (current_pos <= _softLimitMin)) {
+        _rg.stopRamp();
+        break;
+      }
+      // clamp if crossing max
+      if (new_pos > _softLimitMax) {
+        int32_t allowed = _softLimitMax - current_pos;
+        cmd.command.steps = (allowed < 0) ? 0 : (uint16_t)allowed;
+      }
+      // clamp if crossing min
+      else if (new_pos < _softLimitMin) {
+        int32_t allowed = current_pos - _softLimitMin;
+        cmd.command.steps = (allowed < 0) ? 0 : (uint16_t)allowed;
+        if (cmd.command.steps > 0 && cmd.command.count_up) {
+          cmd.command.count_up = false; // flip if needed
+        }
+      }
+    }
+    // 4) Add the (possibly clipped) command to the queue
+    int8_t res = addQueueEntry(&cmd.command, !delayed_start);
+    if (res != AQE_OK)
+    {
+      // If queue is full or any error, abort further ramp generation
+      _rg.stopRamp();
+      break;
+    }
+    need_delayed_start = delayed_start;
 
 #if (TEST_MEASURE_ISR_SINGLE_FILL == 1)
     // For run time measurement
     runtime_us = micros() - runtime_us;
-    max_micros = fas_max(max_micros, runtime_us);
+    max_micros = max(max_micros, runtime_us);
 #endif
-    if (cmd.command.ticks == 0) {
+    if (cmd.command.ticks == 0)
+    {
       break;
     }
+    /*
     if (res != AQE_OK) {
       if (res > 0) {
         // try later again
         break;
       } else {
 #ifdef SIM_TEST_INPUT
-        Serial.println("Abort ramp due to queue error res=");
-        Serial.print(res);
-        Serial.print(" Steps=");
+        Serial.println("Abort ramp due to queue error");
+        Serial.print("Steps=");
         Serial.print(cmd.command.steps);
         Serial.print(" ticks=");
         Serial.print(cmd.command.ticks);
@@ -445,6 +500,23 @@ void FastAccelStepper::fill_queue() {
     }
   }
   if (need_delayed_start) {
+    addQueueEntry(NULL, true);
+  }
+    */
+    // 5) Accumulate the total tick duration to plan far enough ahead
+    if (cmd.command.steps <= 1)
+    {
+      ticksPrepared += cmd.command.ticks;
+    }
+    else
+    {
+      ticksPrepared += ((uint32_t)cmd.command.steps * (uint32_t)cmd.command.ticks);
+    }
+  }
+
+  // Only start the queued commands after we've added them
+  if (need_delayed_start)
+  {
     addQueueEntry(NULL, true);
   }
 }
