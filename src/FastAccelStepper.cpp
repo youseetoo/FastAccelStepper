@@ -939,6 +939,16 @@ void FastAccelStepper::setPositionAfterCommandsCompleted(int32_t new_pos) {
   }
   fasEnableInterrupts();
 }
+void FastAccelStepper::setSoftLimits(int32_t minPos, int32_t maxPos){
+  _softLimitMin = minPos;
+  _softLimitMax = maxPos;
+  if (minPos >= maxPos) {
+    _softLimitsEnabled = false;
+  } else {
+    _softLimitsEnabled = true;
+  }
+}
+
 uint8_t FastAccelStepper::queueEntries() {
   return fas_queue[_queue_num].queueEntries();
 }
